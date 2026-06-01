@@ -24,7 +24,7 @@ agent architecture — specifically orchestrator agents, tool use, and context m
 
 | Layer | Technology | Rationale |
 |---|---|---|
-| Mobile front-end | React Native (iOS) | Cross-platform foundation, HealthKit bridge via react-native-health |
+| Mobile front-end | React Native (iOS) | HealthKit bridge via react-native-health. Cross-platform foundation enables future Android version — only the HealthKit bridge needs replacing with Health Connect; all other code is reusable. |
 | Backend | FastAPI (Python) | Lightweight, async, excellent Claude SDK support |
 | Database | PostgreSQL | Relational, multi-user ready, managed on Railway |
 | Cloud platform | Railway | No cold starts, managed PostgreSQL included, simple deploy |
