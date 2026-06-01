@@ -280,6 +280,15 @@ Manual input NOT requested for missed days (user may not remember accurately)
 Missing manual fields remain null permanently
 ```
 
+### First run backfill
+```
+On first open → fetch last 90 days from Strava in a single API call →
+store each activity in PostgreSQL → mark backfill complete in sync_log.
+Rate-limiting only applies to sources without date-range support (VeSync,
+OMRON) — those fetch one day at a time with a short delay between requests.
+Strava, which supports date-range queries, completes in a single call.
+```
+
 ### Morning check-in flow
 ```
 App open → orchestrator checks for unrated workouts from yesterday
