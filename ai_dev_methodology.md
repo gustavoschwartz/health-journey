@@ -9,32 +9,32 @@ craft, not biography.
 
 ## Agentic Development Methodology
 
-### Phase 1: Plan Before You Code
+### Principle 1: Plan Before You Code
 - Produce `plan.md` and `architecture.md` before writing a single line of code
 - Use AI as a collaborative planning partner — iterative back-and-forth until ambiguities
   are resolved, not just acknowledged
 - The output should be specific enough that coding becomes execution, not exploration
 - Key artifacts: architecture diagram, data models, API contracts, phasing, open questions
 
-### Phase 2: Grilling Until Questions Are Answered
+### Principle 2: Grilling Until Questions Are Answered
 - Don't accept vague plans — AI should push back until edge cases and unknowns are surfaced
 - Every major decision should have a documented rationale and tradeoffs
 - If you can't explain *why* a decision was made, the planning isn't done
 
-### Phase 3: Validation Tests First
+### Principle 3: Validation Tests First
 - Define what "working" looks like before writing implementation
 - Write tests that cover common cases AND edge cases
 - Tests enable closed-loop agentic iteration: agent runs → tests catch failures →
   agent self-corrects, without human intervention on every cycle
 
-### Phase 4: Context Management Strategy
+### Principle 4: Context Management Strategy
 - The orchestrator agent must know when to delegate vs. handle in main context
 - Use sub-agents for scoped, single-responsibility tasks to avoid context pollution
 - Use dedicated research agents to gather information independently and report findings —
   they inform decisions without bloating the main agent's context
 - Main context should stay clean and focused on orchestration
 
-### Phase 5: Mix of Interactive and Automated Tasks
+### Principle 5: Mix of Interactive and Automated Tasks
 - **Interactive tasks**: when human judgment and iteration matter (design decisions,
   ambiguous requirements, course corrections)
 - **Automated tasks**: well-defined tasks in the plan that the agent can execute
