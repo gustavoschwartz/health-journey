@@ -49,6 +49,8 @@ Never skip ahead — a working foundation is worth more than fast progress on sh
 
 ## Task 1 — Railway + PostgreSQL Setup
 
+### Status: Done on June 4, 2026
+
 ### What you're building
 Provision a Railway project with a FastAPI service and a managed PostgreSQL database.
 Confirm the service is reachable from the internet and the database is connectable.
@@ -81,6 +83,8 @@ def test_database_connection():
 ---
 
 ## Task 2 — Full Database Schema
+
+### Status: In Progress
 
 ### What you're building
 Create all tables defined in `architecture.md` in PostgreSQL using SQLAlchemy models
