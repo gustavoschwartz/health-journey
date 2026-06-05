@@ -810,11 +810,11 @@ the question is resolved.
 
 | # | Question | Affects | Status |
 |---|---|---|---|
-| 1 | Which Railway plan — free tier or paid? Free tier may have limitations for background jobs | Task 1 | Open |
-| 2 | Does Strava API require app registration? What are the rate limits? | Task 4 | Open |
-| 3 | What is the BGAppRefreshTask minimum interval on iOS? (Apple may enforce a minimum — typically 15 min) | Task 7, 12 | Open |
-| 4 | Which React Native version and Expo vs bare workflow? | Task 12 | Open |
-| 5 | Does react-native-health require a paid Apple Developer account for HealthKit entitlement? (Phase 1 doesn't use it, but affects setup) | Task 12 | Open |
+| 1 | Which Railway plan — free tier or paid? | Task 1 | Resolved — Hobby plan. ~$5-15/month for a single user. Start with included $5 credit. |
+| 2 | Does Strava API require app registration? What are the rate limits? | Task 4 | Resolved — Register free app at strava.com/settings/api to get client_id and client_secret. Rate limits: 100 requests/15 min, 1,000/day — not a concern for a single user. |
+| 3 | What is the BGAppRefreshTask minimum interval on iOS? | Task 7, 12 | Resolved — iOS controls timing heuristically; exact midnight not guaranteed. Variance of ~30 minutes acceptable. Architecture already accounts for this. |
+| 4 | Which React Native version and Expo vs bare workflow? | Task 12 | Resolved — React Native CLI, bare workflow, latest stable (0.73.x). Expo managed workflow incompatible with react-native-health without workarounds. |
+| 5 | Apple Developer account required? | Task 12 | Resolved — Paid account ($99/year) required before Task 12 to provision app on a real iPhone. Sign up at developer.apple.com. HealthKit entitlement additionally needed in Phase 2. |
 
 ---
 
