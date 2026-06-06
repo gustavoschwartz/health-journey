@@ -1,9 +1,11 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import Optional
+from sqlalchemy.orm import Session
+from app.services.strava_auth import get_auth_url, exchange_code_for_tokens
 
 load_dotenv()
 
@@ -54,3 +56,27 @@ def checkin(request: CheckinRequest):
 @app.post("/sync")
 def sync(request: SyncRequest):
     return {"status": "stub", "timezone": request.timezone}
+
+# --- Database session dependency ---
+
+def get_db():
+    from sqlalchemy.orm import sessionmaker
+    SessionLocal = sessionmaker(bind=engine)
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# --- Strava OAuth routes ---
+
+@app.get("/strava/auth-url")
+def strava_auth_url():
+    return {"url": get_auth_url()}
+
+
+@app.get("/strava/callback")
+def strava_callback(code: str, db: Session = Depends(get_db)):
+    token = exchange_code_for_tokens(code, db)
+    return {"status": "success", "expires_at": str(token.expires_at)}

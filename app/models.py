@@ -150,3 +150,14 @@ class SyncLog(Base):
     synced_date = Column(Date, nullable=False)
     synced_at = Column(DateTime(timezone=True), server_default=func.now())
     status = Column(Enum(SyncStatusEnum), nullable=False)
+
+class StravaToken(Base):
+    __tablename__ = "strava_token"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    access_token = Column(String, nullable=False)
+    refresh_token = Column(String, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
