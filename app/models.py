@@ -147,9 +147,10 @@ class SyncLog(Base):
     __tablename__ = "sync_log"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    synced_date = Column(Date, nullable=False)
+    synced_date = Column(Date, nullable=True)
     synced_at = Column(DateTime(timezone=True), server_default=func.now())
     status = Column(Enum(SyncStatusEnum), nullable=False)
+    is_backfill = Column(Boolean, nullable=False, default=False)
 
 class StravaToken(Base):
     __tablename__ = "strava_token"
