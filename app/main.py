@@ -1,3 +1,5 @@
+from fastapi.responses import StreamingResponse
+from app.services.sync import run_sync
 import os
 from fastapi import FastAPI, Depends
 from sqlalchemy import create_engine, text
@@ -33,6 +35,17 @@ class SyncRequest(BaseModel):
     last_synced_date: str
 
 
+ # --- Database session dependency ---
+
+def get_db():
+    from sqlalchemy.orm import sessionmaker
+    SessionLocal = sessionmaker(bind=engine)
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 # --- Routes ---
 
 @app.get("/health")
@@ -54,19 +67,18 @@ def checkin(request: CheckinRequest):
     return {"status": "stub", "field": request.field}
 
 @app.post("/sync")
-def sync(request: SyncRequest):
-    return {"status": "stub", "timezone": request.timezone}
+def sync(request: SyncRequest, db: Session = Depends(get_db)):
+    from datetime import date
+    import json
+    last_synced = date.fromisoformat(request.last_synced_date)
 
-# --- Database session dependency ---
+    def generate():
+        results = run_sync(last_synced, db)
+        for result in results:
+            yield f"data: {json.dumps(result)}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
-def get_db():
-    from sqlalchemy.orm import sessionmaker
-    SessionLocal = sessionmaker(bind=engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 # --- Strava OAuth routes ---
