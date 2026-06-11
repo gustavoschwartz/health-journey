@@ -28,7 +28,7 @@ agent architecture — specifically orchestrator agents, tool use, and context m
 | Backend | FastAPI (Python) | Lightweight, async, excellent Claude SDK support |
 | Database | PostgreSQL | Relational, multi-user ready, managed on Railway |
 | Cloud platform | Railway | No cold starts, managed PostgreSQL included, simple deploy |
-| AI | Claude API (claude-sonnet-4) | Orchestrator agent + 2 true sub-agents |
+| AI | Claude API (claude-sonnet-4-6) | Orchestrator agent + 2 true sub-agents |
 | HealthKit bridge | react-native-health | Wraps HealthKit in JS API, no Swift required |
 
 ---
