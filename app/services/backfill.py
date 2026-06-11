@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from dotenv import load_dotenv
 from app.models import Workout, SyncLog, SyncStatusEnum, SyncSourceEnum
 from app.services.strava_auth import get_valid_token
+from app.tools.strava import normalize_activity, fetch_activity_calories
 
 load_dotenv()
 
@@ -94,23 +95,22 @@ def run_first_backfill(db: Session, today: date | None = None) -> dict:
                 continue
 
             activity_date = date.fromisoformat(local_date_str)
+            normalized = normalize_activity(activity)
 
             # Skip if already exists
             existing = db.query(Workout).filter_by(
-                strava_id=str(activity["id"])
+                strava_id=normalized["strava_id"]
             ).first()
             if existing:
                 continue
 
+            normalized["calories"] = fetch_activity_calories(
+                access_token, normalized["strava_id"]
+            )
             workout = Workout(
                 user_id=TEST_USER_ID,
                 date=activity_date,
-                strava_id=str(activity["id"]),
-                type=activity.get("sport_type", activity.get("type", "unknown")),
-                duration_minutes=round(activity.get("moving_time", 0) / 60),
-                distance_km=round(activity.get("distance", 0) / 1000, 2) or None,
-                avg_heart_rate=activity.get("average_heartrate") or None,
-                calories=activity.get("calories") or None,
+                **normalized,
                 feeling=None,
                 feeling_prompted=False,
             )

@@ -47,15 +47,32 @@ def fetch_from_strava_api(access_token: str, target_date: date_type) -> list[dic
         if a.get("start_date_local", "")[:10] == str(target_date)
     ]
 
-def normalize_activity(activity: dict, target_date: date_type) -> dict:
-    """Normalize a Strava activity to our workout schema."""
+def fetch_activity_calories(access_token: str, strava_id: str) -> int | None:
+    """Fetch calories for one activity. Calories only exist on the activity
+    detail endpoint — summary activities from the list endpoint omit them.
+    Returns None on any failure: calories are enrichment, never worth
+    failing a sync over."""
+    try:
+        response = httpx.get(
+            f"https://www.strava.com/api/v3/activities/{strava_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        response.raise_for_status()
+        calories = response.json().get("calories")
+        return round(calories) if calories else None
+    except Exception:
+        return None
+
+
+def normalize_activity(activity: dict) -> dict:
+    """Normalize a Strava summary activity to our workout schema."""
     return {
         "strava_id": str(activity["id"]),
         "type": activity.get("sport_type", activity.get("type", "unknown")),
         "duration_minutes": round(activity.get("moving_time", 0) / 60),
         "distance_km": round(activity.get("distance", 0) / 1000, 2) or None,
         "avg_heart_rate": activity.get("average_heartrate") or None,
-        "calories": activity.get("calories") or None,
+        "calories": None,  # summary activities never carry calories — enriched at store time
     }
 
 
@@ -148,7 +165,7 @@ def get_strava_data(
 
             # Store each activity in PostgreSQL
             for activity in activities:
-                normalized = normalize_activity(activity, target_date)
+                normalized = normalize_activity(activity)
 
                 # Skip if already exists (idempotent)
                 existing = db.query(Workout).filter_by(
@@ -157,6 +174,9 @@ def get_strava_data(
                 if existing:
                     continue
 
+                normalized["calories"] = fetch_activity_calories(
+                    access_token, normalized["strava_id"]
+                )
                 workout = Workout(
                     user_id=TEST_USER_ID,
                     date=target_date,

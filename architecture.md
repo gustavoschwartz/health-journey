@@ -618,3 +618,4 @@ No data model migrations required.
 | Cloud platform | Railway | No cold starts, managed PostgreSQL, simple deploy |
 | Auth Phase 1 | Hardcoded single user | Keeps Phase 1 focused on agent learning |
 | Cache strategy | Lazy — write on first fetch, never re-fetch past dates | Cache-aside pattern; sync_log success rows mark per-date fetch coverage so empty (rest) days are cached too; today is always fetched fresh |
+| Workout calories | Per-activity detail fetch at store time | Strava's list endpoint omits calories — only `/activities/{id}` has them. One extra API call per new workout; on failure calories stay null rather than failing the sync |
