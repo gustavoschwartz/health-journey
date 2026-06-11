@@ -226,12 +226,16 @@ before any Strava API calls are attempted.
 - Access token: short-lived (6 hours), used in every Strava API call
 - Refresh token: long-lived, used only to get a new access token silently
 - Tokens stored in PostgreSQL, never in the app or logs
+- State parameter: a one-time random token carried through the redirect —
+  the callback rejects any request whose state we didn't issue (CSRF protection)
 
 ### Definition of done (prose)
 > Strava OAuth is working when: the authorization flow completes without errors,
 > a valid access token and refresh token are stored in PostgreSQL, and a direct
 > call to the Strava API using the stored token returns real activity data without
-> a 401 error. Token refresh works when given an expired access token.
+> a 401 error. Token refresh works when given an expired access token. The callback
+> rejects requests with a missing, forged, replayed, or expired state (403).
+> The redirect URI comes from the STRAVA_REDIRECT_URI env var (localhost default).
 
 ### Validation tests
 ```python
@@ -244,17 +248,26 @@ def test_strava_auth_url_is_valid():
     assert "client_id" in url
     assert "redirect_uri" in url
     assert "scope=activity:read_all" in url
+    assert "state=" in url
 
 
 def test_strava_tokens_stored_after_callback():
     """After OAuth callback, access and refresh tokens are stored in PostgreSQL."""
-    # Simulate callback with a mock authorization code
-    response = client.get("/strava/callback?code=mock_code&state=mock_state")
+    # Get a real state from the auth URL — the callback rejects unknown states
+    auth_url = client.get("/strava/auth-url").json()["url"]
+    state = parse_qs(urlparse(auth_url).query)["state"][0]
+    response = client.get(f"/strava/callback?code=mock_code&state={state}")
     token = db.query(StravaToken).filter_by(user_id=TEST_USER_ID).first()
     assert token is not None
     assert token.access_token is not None
     assert token.refresh_token is not None
     assert token.expires_at is not None
+
+
+def test_strava_callback_rejects_unknown_state():
+    """Callback returns 403 for a state we never issued."""
+    response = client.get("/strava/callback?code=mock_code&state=forged")
+    assert response.status_code == 403
 
 
 def test_strava_api_call_succeeds_with_stored_token():
@@ -281,13 +294,20 @@ def test_strava_token_refresh_succeeds():
 ### Status: Done 
 
 ### What you're building
-The `get_strava_data(date)` tool: fetch activities from Strava for a given date,
-normalize to the workout schema, store in PostgreSQL (cache-aside), and return
-structured data matching the tool contract in `architecture.md`.
+The `get_strava_data(target_date, db, today=None)` tool: fetch activities from
+Strava for a given date, normalize to the workout schema, store in PostgreSQL
+(cache-aside), and return structured data matching the tool contract in
+`architecture.md`. The module also exports the Claude-facing layer:
+`GET_STRAVA_DATA_TOOL` (JSON schema) and `handle_get_strava_data` (string-date
+adapter), which the Task 8 orchestrator registers and routes to.
 
 ### Cache-aside rule
-Check PostgreSQL first. If data exists for the requested date, return it.
-If not, fetch from Strava API, store it, then return it.
+A past date is served from PostgreSQL when its workouts are stored **or**
+sync_log records a successful fetch for it — the coverage row is what lets
+rest days (no workouts) be cached instead of re-fetched forever. On a cache
+miss, fetch from the API, store workouts + a coverage row, then return.
+Today is always fetched fresh — the day isn't over yet. Calories require one
+extra detail-endpoint call per new activity (the list endpoint omits them).
 
 ### Definition of done (prose)
 > The Strava tool is working when: calling get_strava_data() for a date with known
@@ -299,7 +319,7 @@ If not, fetch from Strava API, store it, then return it.
 ```python
 def test_strava_tool_returns_structured_data():
     """get_strava_data returns data matching the expected contract shape."""
-    result = get_strava_data(date="2026-05-27")
+    result = get_strava_data(date(2026, 5, 27), db)
     assert "date" in result
     assert "workouts" in result
     assert isinstance(result["workouts"], list)
@@ -311,36 +331,45 @@ def test_strava_tool_returns_structured_data():
 
 
 def test_strava_tool_caches_on_first_fetch():
-    """After first fetch, workout data is stored in PostgreSQL."""
-    get_strava_data(date="2026-05-27")
-    stored = db.query(Workout).filter_by(
-        user_id=TEST_USER_ID, date="2026-05-27"
-    ).all()
-    assert len(stored) >= 0  # empty is valid, but table should be written
+    """After first fetch, the date is covered: workouts stored, coverage row written."""
+    get_strava_data(date(2026, 5, 27), db)
+    covered = db.query(SyncLog).filter_by(
+        user_id=TEST_USER_ID, synced_date=date(2026, 5, 27),
+        source=SyncSourceEnum.strava, status=SyncStatusEnum.success
+    ).first()
+    assert covered is not None
 
 
 def test_strava_tool_reads_cache_on_second_call(mocker):
     """Second call for same date reads from PostgreSQL, not Strava API."""
-    mock_strava = mocker.patch("app.services.strava.fetch_from_api")
+    mock_strava = mocker.patch("app.tools.strava.fetch_from_strava_api")
     # First call — populates cache
-    get_strava_data(date="2026-05-27")
+    get_strava_data(date(2026, 5, 27), db)
     # Second call — should not hit API
-    get_strava_data(date="2026-05-27")
+    get_strava_data(date(2026, 5, 27), db)
     assert mock_strava.call_count <= 1
 
 
 def test_strava_tool_returns_empty_for_rest_day():
     """get_strava_data returns empty workouts array for a date with no activities."""
-    result = get_strava_data(date="2000-01-01")  # date guaranteed to have no data
+    result = get_strava_data(date(2000, 1, 1), db)  # date guaranteed to have no data
     assert result["workouts"] == []
 
 
 def test_strava_tool_retries_on_failure(mocker):
-    """Strava tool retries 3 times with backoff before returning error."""
-    mocker.patch("app.services.strava.fetch_from_api", side_effect=Exception("API down"))
-    result = get_strava_data(date="2026-05-27")
+    """Strava tool makes 3 attempts with backoff before returning error."""
+    mock_fetch = mocker.patch("app.tools.strava.fetch_from_strava_api",
+                              side_effect=Exception("API down"))
+    result = get_strava_data(date(2026, 5, 27), db)
     assert result["status"] == "error"
     assert mock_fetch.call_count == 3
+
+
+def test_tool_handler_rejects_bad_date():
+    """Claude-facing handler returns an error dict (not an exception) on bad input."""
+    result = handle_get_strava_data({"date": "not-a-date"}, db)
+    assert result["status"] == "error"
+    assert result["workouts"] == []
 ```
 
 ---
@@ -350,20 +379,23 @@ def test_strava_tool_retries_on_failure(mocker):
 ### Status: Done 
 
 ### What you're building
-On first app open, fetch the last 90 days of Strava activities in a single API call,
-store each activity in PostgreSQL, and mark the backfill as complete in sync_log.
+On first app open, the app fires POST /backfill (with the device timezone).
+The backend fetches the last 90 days of Strava activities in a single date-range
+query (paginated at 200 activities per page), stores each activity in PostgreSQL,
+and writes one coverage row per day in the range (through yesterday) to sync_log.
 Subsequent app opens skip the backfill.
 
 ### Definition of done (prose)
 > First run backfill is working when: on first open, activities from the last 90 days
-> are fetched and stored in PostgreSQL; the sync_log records the backfill completion;
-> and on second open, the backfill does not run again.
+> are fetched and stored in PostgreSQL; sync_log holds one coverage row per day in
+> the range; and on second open, the backfill does not run again. A failed backfill
+> stores nothing, writes a failed sync_log row, and retries on the next app open.
 
 ### Validation tests
 ```python
 def test_backfill_fetches_90_days():
     """Backfill fetches activities covering the last 90 days."""
-    run_first_backfill(user_id=TEST_USER_ID)
+    run_first_backfill(db)
     earliest = db.query(func.min(Workout.date)).filter_by(
         user_id=TEST_USER_ID
     ).scalar()
@@ -371,21 +403,34 @@ def test_backfill_fetches_90_days():
     assert days_back >= 89  # allow 1 day tolerance
 
 
-def test_backfill_marked_complete_in_sync_log():
-    """After backfill, sync_log contains a success record."""
-    run_first_backfill(user_id=TEST_USER_ID)
-    log = db.query(SyncLog).filter_by(
-        user_id=TEST_USER_ID, status="success"
-    ).first()
-    assert log is not None
+def test_backfill_writes_per_date_coverage():
+    """After backfill, sync_log has one coverage row per day through yesterday."""
+    run_first_backfill(db, today=date.today())
+    coverage = db.query(SyncLog).filter_by(
+        user_id=TEST_USER_ID, is_backfill=True, status=SyncStatusEnum.success
+    ).filter(SyncLog.synced_date.isnot(None)).count()
+    assert coverage == BACKFILL_DAYS
 
 
 def test_backfill_does_not_run_twice(mocker):
     """Backfill skips on second run if sync_log shows it already completed."""
-    mock_fetch = mocker.patch("app.services.strava.fetch_date_range")
-    run_first_backfill(user_id=TEST_USER_ID)
-    run_first_backfill(user_id=TEST_USER_ID)  # second call
+    mock_fetch = mocker.patch("app.services.backfill.fetch_activities_date_range")
+    run_first_backfill(db)
+    run_first_backfill(db)  # second call
     assert mock_fetch.call_count == 1
+
+
+def test_backfill_failure_logged_and_retryable(mocker):
+    """A failed backfill writes a failed row, stores nothing, and doesn't block retry."""
+    mocker.patch("app.services.backfill.fetch_activities_date_range",
+                 side_effect=Exception("API down"))
+    result = run_first_backfill(db)
+    assert result["status"] == "failed"
+    failed = db.query(SyncLog).filter_by(
+        user_id=TEST_USER_ID, is_backfill=True, status=SyncStatusEnum.failed
+    ).first()
+    assert failed is not None
+    assert is_backfill_complete(db) is False  # retry not blocked
 ```
 
 ---
