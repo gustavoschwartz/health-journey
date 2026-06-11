@@ -4,11 +4,8 @@ from datetime import datetime, timezone, date as date_type
 from sqlalchemy.orm import Session
 from app.models import Workout, SyncLog, SyncStatusEnum, SyncSourceEnum
 from app.services.strava_auth import get_valid_token, refresh_access_token
-import uuid
+from app.config import TEST_USER_ID
 import time
-
-# Hardcoded for Phase 1
-TEST_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 def fetch_from_strava_api(access_token: str, target_date: date_type) -> list[dict]:
     """Fetch activities from Strava API for a specific date.

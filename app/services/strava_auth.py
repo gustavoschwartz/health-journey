@@ -5,10 +5,7 @@ import httpx
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from app.models import StravaToken
-import uuid
-
-# Hardcoded for Phase 1 — no auth yet
-TEST_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+from app.config import TEST_USER_ID
 
 
 # Env vars read inside functions, not at import time — module import order

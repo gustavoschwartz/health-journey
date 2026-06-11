@@ -1,12 +1,10 @@
-import uuid
 from datetime import date, datetime, timedelta
 from typing import Iterator
 from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from app.models import SyncLog, SyncStatusEnum, SyncSourceEnum
 from app.tools.strava import get_strava_data
-
-TEST_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+from app.config import TEST_USER_ID
 
 
 def local_today(timezone_name: str) -> date:

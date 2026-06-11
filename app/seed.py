@@ -1,13 +1,11 @@
-import uuid
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 from app.models import User
+from app.config import TEST_USER_ID
 
 load_dotenv()
-
-TEST_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 def seed():

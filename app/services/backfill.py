@@ -1,17 +1,14 @@
-import os
 import httpx
-import uuid
 from datetime import datetime, timezone, date, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine
 from dotenv import load_dotenv
 from app.models import Workout, SyncLog, SyncStatusEnum, SyncSourceEnum
 from app.services.strava_auth import get_valid_token
 from app.tools.strava import normalize_activity, fetch_activity_calories
+from app.config import TEST_USER_ID
 
 load_dotenv()
 
-TEST_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 BACKFILL_DAYS = 90
 
 

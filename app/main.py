@@ -11,13 +11,16 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy import create_engine, text
 from pydantic import BaseModel
 from typing import Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from app.services.strava_auth import get_auth_url, exchange_code_for_tokens, consume_state
 
 app = FastAPI()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-engine = create_engine(DATABASE_URL)
+# pre_ping revalidates pooled connections — Railway's proxy drops idle ones,
+# which otherwise surfaces as a stale-connection error on the first request
+# after a quiet period
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 
 # --- Request models ---
@@ -41,11 +44,11 @@ class BackfillRequest(BaseModel):
     timezone: str
 
 
- # --- Database session dependency ---
+# --- Database session dependency ---
+
+SessionLocal = sessionmaker(bind=engine)
 
 def get_db():
-    from sqlalchemy.orm import sessionmaker
-    SessionLocal = sessionmaker(bind=engine)
     db = SessionLocal()
     try:
         yield db
