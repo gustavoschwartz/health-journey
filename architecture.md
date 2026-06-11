@@ -442,6 +442,19 @@ Other outcomes: `{"status": "skipped", "reason": ...}` and
 
 Tools are Python functions, not HTTP endpoints. Called by the orchestrator via Claude tool use.
 
+Each tool module owns three pieces:
+1. **Typed implementation** — Python signature with `date` objects and an injected
+   db session (e.g. `get_strava_data(target_date: date, db, today=None)`).
+2. **Tool definition** — the JSON schema Claude sees (e.g. `GET_STRAVA_DATA_TOOL`),
+   where dates are `YYYY-MM-DD` strings.
+3. **Handler** — thin adapter (e.g. `handle_get_strava_data(tool_input, db, today)`)
+   that parses Claude's string inputs and delegates. Invalid input returns an error
+   dict rather than raising, so the orchestrator can return it to Claude to self-correct.
+
+The orchestrator registers the tool definitions and routes tool calls to the handlers,
+injecting the db session and the device-local `today`. The contracts below describe
+the Claude-facing layer: string dates in, the shown JSON out.
+
 ### `get_strava_data(date: str) → dict`
 ```json
 {

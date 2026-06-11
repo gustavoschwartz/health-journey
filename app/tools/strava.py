@@ -210,3 +210,51 @@ def get_strava_data(
         "message": str(last_error),
         "workouts": []
     }
+
+
+# --- Claude-facing tool layer ---
+# The schema speaks JSON (string dates); the handler converts to the typed
+# signature above and is where the orchestrator (Task 8) routes tool calls.
+
+GET_STRAVA_DATA_TOOL = {
+    "name": "get_strava_data",
+    "description": (
+        "Get the user's workouts for a single date from Strava. "
+        "Returns a list of workouts — empty if the user didn't work out that day — "
+        "with type, duration, distance, heart rate, calories, and how the workout "
+        "felt if the user recorded a feeling. Call once per date of interest."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "date": {
+                "type": "string",
+                "description": "The date to fetch, format YYYY-MM-DD, in the user's local timezone.",
+            }
+        },
+        "required": ["date"],
+    },
+}
+
+
+def handle_get_strava_data(
+    tool_input: dict,
+    db: Session,
+    today: date_type | None = None,
+) -> dict:
+    """Adapter between Claude tool use and get_strava_data.
+    Invalid input returns an error dict instead of raising, so the
+    orchestrator can hand it back to Claude to self-correct."""
+    raw_date = tool_input.get("date", "")
+    try:
+        target_date = date_type.fromisoformat(raw_date)
+    except ValueError:
+        return {
+            "date": raw_date,
+            "source": "error",
+            "status": "error",
+            "message": f"Invalid date {raw_date!r} — expected YYYY-MM-DD.",
+            "workouts": [],
+        }
+
+    return get_strava_data(target_date, db, today=today)
