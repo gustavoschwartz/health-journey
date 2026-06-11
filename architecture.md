@@ -288,11 +288,14 @@ Missing manual fields remain null permanently
 
 ### First run backfill
 ```
-On first open → fetch last 90 days from Strava in a single API call →
+On first open → app fires POST /backfill → fetch last 90 days from Strava in a
+single date-range query (paginated, 200 activities per page) →
 store each activity in PostgreSQL → write one coverage row per day in the range (through yesterday, flagged is_backfill).
+On failure: nothing is stored, a failed sync_log row is written, and the next
+app open retries from scratch.
 Rate-limiting only applies to sources without date-range support (VeSync,
 OMRON) — those fetch one day at a time with a short delay between requests.
-Strava, which supports date-range queries, completes in a single call.
+Strava, which supports date-range queries, completes in a single query.
 ```
 
 ### Morning check-in flow
@@ -408,6 +411,30 @@ data: {"type": "progress", "date": "2026-05-29", "source": "vesync", "status": "
 data: {"type": "progress", "date": "2026-05-29", "source": "vesync", "status": "success"}
 data: {"type": "done", "synced_through": "2026-05-29"}
 ```
+
+---
+
+### POST /backfill
+Device-triggered first run backfill. Idempotent — returns `skipped` once a
+successful backfill exists.
+
+**Request:**
+```json
+{
+  "timezone": "America/Los_Angeles"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "activities_stored": 42,
+  "date_range": "2026-03-13 to 2026-06-11"
+}
+```
+Other outcomes: `{"status": "skipped", "reason": ...}` and
+`{"status": "failed", "error": ...}`.
 
 ---
 

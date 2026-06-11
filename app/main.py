@@ -2,7 +2,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi.responses import StreamingResponse
-from app.services.sync import run_sync
+from app.services.sync import run_sync, local_today
+from app.services.backfill import run_first_backfill
 import json
 import os
 from datetime import date
@@ -35,6 +36,9 @@ class CheckinRequest(BaseModel):
 class SyncRequest(BaseModel):
     timezone: str
     last_synced_date: str
+
+class BackfillRequest(BaseModel):
+    timezone: str
 
 
  # --- Database session dependency ---
@@ -78,6 +82,11 @@ def sync(request: SyncRequest, db: Session = Depends(get_db)):
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@app.post("/backfill")
+def backfill(request: BackfillRequest, db: Session = Depends(get_db)):
+    return run_first_backfill(db, today=local_today(request.timezone))
 
 
 # --- Strava OAuth routes ---
