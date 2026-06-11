@@ -571,6 +571,10 @@ with no data. Orchestrator acknowledges gaps explicitly rather than silently ign
 - Hardcoded single user — no login required
 - `user_id` is a constant in the backend config
 - All endpoints unprotected
+- Strava OAuth is CSRF-protected: the auth URL carries a one-time `state` token
+  (10-minute TTL, consumed on use) and the callback rejects requests without it
+- Strava redirect URI comes from the `STRAVA_REDIRECT_URI` env var
+  (defaults to localhost for development; set to the Railway URL in production)
 
 ### Phase 2 (future)
 - JWT-based auth

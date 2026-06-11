@@ -7,12 +7,12 @@ from app.services.backfill import run_first_backfill
 import json
 import os
 from datetime import date
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy import create_engine, text
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
-from app.services.strava_auth import get_auth_url, exchange_code_for_tokens
+from app.services.strava_auth import get_auth_url, exchange_code_for_tokens, consume_state
 
 app = FastAPI()
 
@@ -97,6 +97,10 @@ def strava_auth_url():
 
 
 @app.get("/strava/callback")
-def strava_callback(code: str, db: Session = Depends(get_db)):
+def strava_callback(code: str, state: str = "", db: Session = Depends(get_db)):
+    # Reject any callback we didn't initiate — without this, an attacker
+    # could complete the flow and bind their Strava account to our tokens
+    if not consume_state(state):
+        raise HTTPException(status_code=403, detail="Invalid or expired OAuth state")
     token = exchange_code_for_tokens(code, db)
     return {"status": "success", "expires_at": str(token.expires_at)}

@@ -1,36 +1,78 @@
 import os
+import secrets
+import time
 import httpx
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from app.models import StravaToken
 import uuid
 
-STRAVA_CLIENT_ID = os.getenv("STRAVA_CLIENT_ID")
-STRAVA_CLIENT_SECRET = os.getenv("STRAVA_CLIENT_SECRET")
-STRAVA_REDIRECT_URI = "http://localhost:8000/strava/callback"
-
 # Hardcoded for Phase 1 — no auth yet
 TEST_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
+# Env vars read inside functions, not at import time — module import order
+# must never decide whether credentials are present.
+
+def _client_credentials() -> tuple[str, str]:
+    return os.getenv("STRAVA_CLIENT_ID"), os.getenv("STRAVA_CLIENT_SECRET")
+
+
+def _redirect_uri() -> str:
+    return os.getenv("STRAVA_REDIRECT_URI", "http://localhost:8000/strava/callback")
+
+
+# --- OAuth state (CSRF protection) ---
+# One-time tokens held in memory: fine for the single-process Phase 1 deploy,
+# and losing them on restart only means re-requesting the auth URL.
+
+STATE_TTL_SECONDS = 600  # OAuth round-trip should take minutes, not hours
+
+_pending_states: dict[str, float] = {}
+
+
+def _prune_expired_states() -> None:
+    now = time.time()
+    for state, expires in list(_pending_states.items()):
+        if expires <= now:
+            del _pending_states[state]
+
+
+def generate_state() -> str:
+    _prune_expired_states()
+    state = secrets.token_urlsafe(32)
+    _pending_states[state] = time.time() + STATE_TTL_SECONDS
+    return state
+
+
+def consume_state(state: str) -> bool:
+    """One-time check: True only if we issued this state and it hasn't
+    expired or been used. Consuming removes it — replays fail."""
+    _prune_expired_states()
+    return _pending_states.pop(state, None) is not None
+
+
 def get_auth_url() -> str:
     """Generate the Strava OAuth authorization URL."""
+    client_id, _ = _client_credentials()
     return (
         f"https://www.strava.com/oauth/authorize"
-        f"?client_id={STRAVA_CLIENT_ID}"
-        f"&redirect_uri={STRAVA_REDIRECT_URI}"
+        f"?client_id={client_id}"
+        f"&redirect_uri={_redirect_uri()}"
         f"&response_type=code"
         f"&scope=activity:read_all"
+        f"&state={generate_state()}"
     )
 
 
 def exchange_code_for_tokens(code: str, db: Session) -> StravaToken:
     """Exchange authorization code for access + refresh tokens."""
+    client_id, client_secret = _client_credentials()
     response = httpx.post(
         "https://www.strava.com/oauth/token",
         data={
-            "client_id": STRAVA_CLIENT_ID,
-            "client_secret": STRAVA_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "code": code,
             "grant_type": "authorization_code",
         }
@@ -66,11 +108,12 @@ def refresh_access_token(db: Session) -> StravaToken:
     if not token:
         raise ValueError("No Strava token found — run OAuth flow first")
 
+    client_id, client_secret = _client_credentials()
     response = httpx.post(
         "https://www.strava.com/oauth/token",
         data={
-            "client_id": STRAVA_CLIENT_ID,
-            "client_secret": STRAVA_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "refresh_token": token.refresh_token,
             "grant_type": "refresh_token",
         }
