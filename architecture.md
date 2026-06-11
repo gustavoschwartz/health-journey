@@ -512,7 +512,9 @@ Tools are Python functions, not HTTP endpoints. Called by the orchestrator via C
 
 ## Error Handling
 
-**Retry policy:** 3 retries with exponential backoff — 1s, 2s, 4s.
+**Retry policy:** 3 attempts with exponential backoff between attempts — 1s, then 2s
+(no sleep after the final failure). The access token is re-resolved on every attempt,
+and a 401 response forces a token refresh before the next attempt.
 
 **On final failure:** Silent skip with note to user. Example orchestrator message:
 > "Strava data was unavailable for this date. The analysis below is based on

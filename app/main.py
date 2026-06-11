@@ -3,7 +3,9 @@ load_dotenv()
 
 from fastapi.responses import StreamingResponse
 from app.services.sync import run_sync
+import json
 import os
+from datetime import date
 from fastapi import FastAPI, Depends
 from sqlalchemy import create_engine, text
 from pydantic import BaseModel
@@ -68,15 +70,12 @@ def checkin(request: CheckinRequest):
 
 @app.post("/sync")
 def sync(request: SyncRequest, db: Session = Depends(get_db)):
-    from datetime import date
-    import json
     last_synced = date.fromisoformat(request.last_synced_date)
 
     def generate():
-        results = run_sync(last_synced, db)
-        for result in results:
-            yield f"data: {json.dumps(result)}\n\n"
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        # run_sync is a generator — each event streams as its date completes
+        for event in run_sync(last_synced, request.timezone, db):
+            yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 

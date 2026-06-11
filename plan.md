@@ -84,7 +84,7 @@ def test_database_connection():
 
 ## Task 2 — Full Database Schema
 
-### Status: In Progress
+### Status: Done 
 
 ### What you're building
 Create all tables defined in `architecture.md` in PostgreSQL using SQLAlchemy models
@@ -150,6 +150,8 @@ def test_migrations_run_cleanly_from_scratch():
 
 ## Task 3 — FastAPI Skeleton
 
+### Status: Done
+
 ### What you're building
 A bare-bones FastAPI app with placeholder routes for all Phase 1 endpoints:
 `/health`, `/conversation`, `/checkin`, `/sync`. Deployed to Railway and reachable
@@ -206,6 +208,8 @@ def test_railway_deployment_reachable():
 ---
 
 ## Task 4 — Strava OAuth
+
+### Status: Done
 
 ### What you're building
 Implement the Strava OAuth flow: authorization URL generation, callback handler,
@@ -274,6 +278,8 @@ def test_strava_token_refresh_succeeds():
 
 ## Task 5 — Strava Tool
 
+### Status: Done 
+
 ### What you're building
 The `get_strava_data(date)` tool: fetch activities from Strava for a given date,
 normalize to the workout schema, store in PostgreSQL (cache-aside), and return
@@ -341,6 +347,8 @@ def test_strava_tool_retries_on_failure(mocker):
 
 ## Task 6 — First Run Backfill
 
+### Status: Done 
+
 ### What you're building
 On first app open, fetch the last 90 days of Strava activities in a single API call,
 store each activity in PostgreSQL, and mark the backfill as complete in sync_log.
@@ -384,25 +392,33 @@ def test_backfill_does_not_run_twice(mocker):
 
 ## Task 7 — Nightly Sync
 
+### Status: Done 
+
 ### What you're building
 Device-triggered nightly sync: React Native app fires POST /sync at local midnight
-via BGAppRefreshTask. Backend fetches yesterday's Strava data and stores it.
-Catch-up logic handles multiple missed days.
+via BGAppRefreshTask. last_synced_date is the most recent date the device has
+already synced — the backend syncs every day after it, through yesterday (in the
+device's timezone). Catch-up logic handles multiple missed days. The response
+streams one progress event per date as it completes, then a done event whose
+synced_through tells the device what to record as its new last_synced_date.
 
 ### Definition of done (prose)
-> Nightly sync is working when: POST /sync with last_synced_date set to yesterday
-> fetches and stores yesterday's Strava data; POST /sync with last_synced_date set
-> to 3 days ago fetches and stores 3 days of data in order; and the sync_log is
-> updated correctly after each run.
+Nightly sync is working when: POST /sync with last_synced_date set to the day
+before yesterday fetches and stores yesterday's Strava data; POST /sync with
+last_synced_date set to 3 days ago fetches and stores the 2 missing days
+(2 days ago, then yesterday) in order; the response streams a progress event
+per date and a done event with synced_through; and synced_through only advances
+past dates that synced successfully, so a failed day is retried on the next sync.
 
 ### Validation tests
 ```python
 def test_sync_fetches_yesterday():
-    """POST /sync fetches and stores yesterday's Strava data."""
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    """POST /sync with last_synced_date = 2 days ago fetches and stores yesterday."""
+    two_days_ago = (date.today() - timedelta(days=2)).isoformat()
+    yesterday = date.today() - timedelta(days=1)
     response = client.post("/sync", json={
         "timezone": "America/Los_Angeles",
-        "last_synced_date": yesterday
+        "last_synced_date": two_days_ago
     })
     assert response.status_code == 200
     log = db.query(SyncLog).filter_by(

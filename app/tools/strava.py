@@ -3,7 +3,7 @@ import httpx
 from datetime import datetime, timezone, date as date_type
 from sqlalchemy.orm import Session
 from app.models import Workout, SyncLog, SyncStatusEnum, SyncSourceEnum
-from app.services.strava_auth import get_valid_token
+from app.services.strava_auth import get_valid_token, refresh_access_token
 import uuid
 import time
 
@@ -99,15 +99,24 @@ def record_coverage(target_date: date_type, db: Session) -> None:
     ))
 
 
-def get_strava_data(target_date: date_type, db: Session) -> dict:
+def get_strava_data(
+    target_date: date_type,
+    db: Session,
+    today: date_type | None = None,
+) -> dict:
     """
     Fetch Strava activities for a given date.
     Cache-aside: a past date is served from PostgreSQL when its workouts are
     stored or sync_log records a successful fetch (so rest days are cached too).
     Today is always fetched fresh — the day isn't over yet.
     Retries 3 times with exponential backoff on API failure.
+
+    today: current date in the caller's timezone; defaults to server date.
+    Callers with a device timezone should pass it so "today" matches the user.
     """
-    is_past_date = target_date < date_type.today()
+    if today is None:
+        today = date_type.today()
+    is_past_date = target_date < today
 
     if is_past_date:
         cached = db.query(Workout).filter_by(
@@ -128,11 +137,13 @@ def get_strava_data(target_date: date_type, db: Session) -> dict:
             }
 
     # Not in cache — fetch from Strava API with retries
-    access_token = get_valid_token(db)
     last_error = None
 
     for attempt in range(3):
         try:
+            # Resolved inside the loop so a token that expires mid-retry
+            # is refreshed instead of reused
+            access_token = get_valid_token(db)
             activities = fetch_from_strava_api(access_token, target_date)
 
             # Store each activity in PostgreSQL
@@ -174,10 +185,22 @@ def get_strava_data(target_date: date_type, db: Session) -> dict:
                 "workouts": serialize_workouts(stored),
             }
 
+        except ValueError:
+            raise  # no stored token — OAuth must run first, retrying won't help
+
         except Exception as e:
             last_error = e
-            wait = 2 ** attempt  # 1s, 2s, 4s
-            time.sleep(wait)
+
+            if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 401:
+                # Token rejected despite a future expires_at (e.g. revoked or
+                # rotated elsewhere) — force a refresh before the next attempt
+                try:
+                    refresh_access_token(db)
+                except Exception:
+                    pass  # if refresh also fails, the retry result surfaces it
+
+            if attempt < 2:
+                time.sleep(2 ** attempt)  # 1s, then 2s between attempts
 
     # All retries failed
     return {

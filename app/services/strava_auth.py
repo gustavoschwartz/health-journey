@@ -1,6 +1,6 @@
 import os
 import httpx
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from app.models import StravaToken
 import uuid
@@ -87,14 +87,19 @@ def refresh_access_token(db: Session) -> StravaToken:
     return token
 
 
+# Refresh slightly early so a token can't expire between this check
+# and the API call that uses it
+TOKEN_EXPIRY_MARGIN = timedelta(minutes=5)
+
+
 def get_valid_token(db: Session) -> str:
-    """Return a valid access token, refreshing if expired."""
+    """Return a valid access token, refreshing if expired or about to expire."""
     token = db.query(StravaToken).filter_by(user_id=TEST_USER_ID).first()
     if not token:
         raise ValueError("No Strava token found — run OAuth flow first")
 
     now = datetime.now(tz=timezone.utc)
-    if token.expires_at <= now:
+    if token.expires_at <= now + TOKEN_EXPIRY_MARGIN:
         token = refresh_access_token(db)
 
     return token.access_token
