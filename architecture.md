@@ -183,7 +183,12 @@ AI-generated rolling summary of conversation history.
 ---
 
 ### `sync_log`
-Tracks nightly sync status per date and source.
+Tracks nightly sync status per date and source. A `success` row also serves as
+the per-date fetch coverage marker: it means that date was fetched from the
+source, so the cache can be trusted even when the date has no workouts (rest
+days). The first run backfill writes one coverage row per date in its range
+(flagged `is_backfill`). Today is never marked covered — the day isn't over,
+so tools keep fetching it fresh.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -191,6 +196,7 @@ Tracks nightly sync status per date and source.
 | `user_id` | uuid (FK → users) | scoped per user |
 | `synced_date` | date | the data date that was synced |
 | `synced_at` | timestamp | when the sync ran |
+| `source` | enum: strava/apple_health/vesync/omron | which source this row covers — coverage is per source |
 | `status` | enum: success/partial/failed | per-source outcome |
 
 ---
@@ -283,7 +289,7 @@ Missing manual fields remain null permanently
 ### First run backfill
 ```
 On first open → fetch last 90 days from Strava in a single API call →
-store each activity in PostgreSQL → mark backfill complete in sync_log.
+store each activity in PostgreSQL → write one coverage row per day in the range (through yesterday, flagged is_backfill).
 Rate-limiting only applies to sources without date-range support (VeSync,
 OMRON) — those fetch one day at a time with a short delay between requests.
 Strava, which supports date-range queries, completes in a single call.
@@ -569,4 +575,4 @@ No data model migrations required.
 | Error handling | 3 retries + silent skip with note | Resilient for daily-use app |
 | Cloud platform | Railway | No cold starts, managed PostgreSQL, simple deploy |
 | Auth Phase 1 | Hardcoded single user | Keeps Phase 1 focused on agent learning |
-| Cache strategy | Lazy — write on first fetch, never re-fetch | Cache-aside pattern; stale historical data acceptable |
+| Cache strategy | Lazy — write on first fetch, never re-fetch past dates | Cache-aside pattern; sync_log success rows mark per-date fetch coverage so empty (rest) days are cached too; today is always fetched fresh |

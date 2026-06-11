@@ -38,6 +38,12 @@ class SyncStatusEnum(enum.Enum):
     partial = "partial"
     failed = "failed"
 
+class SyncSourceEnum(enum.Enum):
+    strava = "strava"
+    apple_health = "apple_health"
+    vesync = "vesync"
+    omron = "omron"
+
 # --- Models ---
 
 class User(Base):
@@ -149,6 +155,8 @@ class SyncLog(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     synced_date = Column(Date, nullable=True)
     synced_at = Column(DateTime(timezone=True), server_default=func.now())
+    # server_default lets rows written by pre-source code default to strava
+    source = Column(Enum(SyncSourceEnum), nullable=False, server_default="strava")
     status = Column(Enum(SyncStatusEnum), nullable=False)
     is_backfill = Column(Boolean, nullable=False, default=False)
 

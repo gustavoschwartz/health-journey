@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, timedelta
 from sqlalchemy.orm import Session
-from app.models import SyncLog, SyncStatusEnum
+from app.models import SyncLog, SyncStatusEnum, SyncSourceEnum
 from app.tools.strava import get_strava_data
 
 TEST_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -26,40 +26,41 @@ def get_missing_dates(last_synced_date: date, db: Session) -> list[date]:
     return missing
 
 
+def log_failure(target_date: date, db: Session) -> None:
+    db.add(SyncLog(
+        user_id=TEST_USER_ID,
+        synced_date=target_date,
+        source=SyncSourceEnum.strava,
+        status=SyncStatusEnum.failed,
+        is_backfill=False,
+    ))
+    db.commit()
+
+
 def sync_date(target_date: date, db: Session) -> dict:
-    """Sync a single date — fetch Strava data and update sync_log."""
+    """Sync a single date — get_strava_data records successful coverage
+    in sync_log itself, so only failures are logged here."""
     try:
         result = get_strava_data(target_date, db)
 
-        status = SyncStatusEnum.success
         if result.get("source") == "error":
-            status = SyncStatusEnum.failed
-
-        log = SyncLog(
-            user_id=TEST_USER_ID,
-            synced_date=target_date,
-            status=status,
-            is_backfill=False,
-        )
-        db.add(log)
-        db.commit()
+            log_failure(target_date, db)
+            return {
+                "date": str(target_date),
+                "source": "strava",
+                "status": "failed",
+                "error": result.get("message")
+            }
 
         return {
             "date": str(target_date),
             "source": "strava",
-            "status": status.value,
+            "status": "success",
             "workouts": len(result.get("workouts", []))
         }
 
     except Exception as e:
-        log = SyncLog(
-            user_id=TEST_USER_ID,
-            synced_date=target_date,
-            status=SyncStatusEnum.failed,
-            is_backfill=False,
-        )
-        db.add(log)
-        db.commit()
+        log_failure(target_date, db)
         return {
             "date": str(target_date),
             "source": "strava",

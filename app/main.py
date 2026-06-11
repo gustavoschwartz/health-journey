@@ -1,15 +1,15 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi.responses import StreamingResponse
 from app.services.sync import run_sync
 import os
 from fastapi import FastAPI, Depends
 from sqlalchemy import create_engine, text
-from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
 from app.services.strava_auth import get_auth_url, exchange_code_for_tokens
-
-load_dotenv()
 
 app = FastAPI()
 

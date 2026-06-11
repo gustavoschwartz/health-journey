@@ -2,7 +2,7 @@ import os
 import httpx
 from datetime import datetime, timezone, date as date_type
 from sqlalchemy.orm import Session
-from app.models import Workout
+from app.models import Workout, SyncLog, SyncStatusEnum, SyncSourceEnum
 from app.services.strava_auth import get_valid_token
 import uuid
 import time
@@ -59,36 +59,73 @@ def normalize_activity(activity: dict, target_date: date_type) -> dict:
     }
 
 
+def serialize_workouts(workouts: list[Workout]) -> list[dict]:
+    """Convert Workout rows to the tool contract shape."""
+    return [
+        {
+            "strava_id": w.strava_id,
+            "type": w.type,
+            "duration_minutes": w.duration_minutes,
+            "distance_km": w.distance_km,
+            "avg_heart_rate": w.avg_heart_rate,
+            "calories": w.calories,
+            "feeling": w.feeling.value if w.feeling else None,
+            "feeling_prompted": w.feeling_prompted,
+        }
+        for w in workouts
+    ]
+
+
+def is_date_covered(target_date: date_type, db: Session) -> bool:
+    """A date is covered when sync_log records a successful Strava fetch for it.
+    Coverage is per source — another source's success says nothing about Strava."""
+    return db.query(SyncLog).filter_by(
+        user_id=TEST_USER_ID,
+        synced_date=target_date,
+        source=SyncSourceEnum.strava,
+        status=SyncStatusEnum.success,
+    ).first() is not None
+
+
+def record_coverage(target_date: date_type, db: Session) -> None:
+    """Mark a date as successfully fetched so empty (rest) days are cached too.
+    Does not commit — the caller owns the transaction."""
+    db.add(SyncLog(
+        user_id=TEST_USER_ID,
+        synced_date=target_date,
+        source=SyncSourceEnum.strava,
+        status=SyncStatusEnum.success,
+        is_backfill=False,
+    ))
+
+
 def get_strava_data(target_date: date_type, db: Session) -> dict:
     """
     Fetch Strava activities for a given date.
-    Cache-aside: check PostgreSQL first, fetch from API if not found.
+    Cache-aside: a past date is served from PostgreSQL when its workouts are
+    stored or sync_log records a successful fetch (so rest days are cached too).
+    Today is always fetched fresh — the day isn't over yet.
     Retries 3 times with exponential backoff on API failure.
     """
-    # Check cache first
-    cached = db.query(Workout).filter_by(
-        user_id=TEST_USER_ID,
-        date=target_date
-    ).all()
+    is_past_date = target_date < date_type.today()
 
-    if cached:
-        return {
-            "date": str(target_date),
-            "source": "cache",
-            "workouts": [
-                {
-                    "strava_id": w.strava_id,
-                    "type": w.type,
-                    "duration_minutes": w.duration_minutes,
-                    "distance_km": w.distance_km,
-                    "avg_heart_rate": w.avg_heart_rate,
-                    "calories": w.calories,
-                    "feeling": w.feeling.value if w.feeling else None,
-                    "feeling_prompted": w.feeling_prompted,
-                }
-                for w in cached
-            ]
-        }
+    if is_past_date:
+        cached = db.query(Workout).filter_by(
+            user_id=TEST_USER_ID,
+            date=target_date
+        ).all()
+
+        covered = is_date_covered(target_date, db)
+        if cached or covered:
+            if not covered:
+                # Workouts stored before coverage tracking existed
+                record_coverage(target_date, db)
+                db.commit()
+            return {
+                "date": str(target_date),
+                "source": "cache",
+                "workouts": serialize_workouts(cached),
+            }
 
     # Not in cache — fetch from Strava API with retries
     access_token = get_valid_token(db)
@@ -118,6 +155,11 @@ def get_strava_data(target_date: date_type, db: Session) -> dict:
                 )
                 db.add(workout)
 
+            # Today stays uncovered so later activities are still fetched;
+            # a past date reaching this point is never covered yet
+            if is_past_date:
+                record_coverage(target_date, db)
+
             db.commit()
 
             # Return freshly stored data
@@ -129,19 +171,7 @@ def get_strava_data(target_date: date_type, db: Session) -> dict:
             return {
                 "date": str(target_date),
                 "source": "api",
-                "workouts": [
-                    {
-                        "strava_id": w.strava_id,
-                        "type": w.type,
-                        "duration_minutes": w.duration_minutes,
-                        "distance_km": w.distance_km,
-                        "avg_heart_rate": w.avg_heart_rate,
-                        "calories": w.calories,
-                        "feeling": w.feeling.value if w.feeling else None,
-                        "feeling_prompted": w.feeling_prompted,
-                    }
-                    for w in stored
-                ]
+                "workouts": serialize_workouts(stored),
             }
 
         except Exception as e:

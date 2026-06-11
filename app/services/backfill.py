@@ -5,7 +5,7 @@ from datetime import datetime, timezone, date, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
 from dotenv import load_dotenv
-from app.models import Workout, SyncLog, SyncStatusEnum
+from app.models import Workout, SyncLog, SyncStatusEnum, SyncSourceEnum
 from app.services.strava_auth import get_valid_token
 
 load_dotenv()
@@ -17,6 +17,7 @@ BACKFILL_DAYS = 90
 def is_backfill_complete(db: Session) -> bool:
     log = db.query(SyncLog).filter_by(
         user_id=TEST_USER_ID,
+        source=SyncSourceEnum.strava,
         is_backfill=True,
         status=SyncStatusEnum.success,
     ).first()
@@ -97,14 +98,20 @@ def run_first_backfill(db: Session) -> dict:
         db.add(workout)
         stored_count += 1
 
-    # Mark backfill complete — synced_date is None to indicate it's a backfill
-    log = SyncLog(
-        user_id=TEST_USER_ID,
-        synced_date=None,
-        is_backfill=True,
-        status=SyncStatusEnum.success,
-    )
-    db.add(log)
+    # Record per-date coverage so rest days inside the range are cached too.
+    # Today stays uncovered — the day isn't over yet, so the Strava tool
+    # must keep fetching it fresh.
+    yesterday = date.today() - timedelta(days=1)
+    current = start_date
+    while current <= yesterday:
+        db.add(SyncLog(
+            user_id=TEST_USER_ID,
+            synced_date=current,
+            source=SyncSourceEnum.strava,
+            is_backfill=True,
+            status=SyncStatusEnum.success,
+        ))
+        current += timedelta(days=1)
     db.commit()
 
     return {
